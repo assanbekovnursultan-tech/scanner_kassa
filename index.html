@@ -49,9 +49,13 @@
         verbose: false
       });
       scanner.start(
-        { facingMode: "environment",
-          width: { ideal: 1920 }, height: { ideal: 1080 } },
+        { facingMode: "environment" },
         { fps: 15,
+          videoConstraints: {
+            facingMode: "environment",
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          },
           qrbox: function (w, h) {
             return { width: Math.floor(w * 0.9), height: Math.floor(h * 0.35) };
           } },
