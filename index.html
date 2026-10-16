@@ -5,44 +5,64 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Сканер штрихкода</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <style>
-    body { font-family: sans-serif; text-align: center; margin: 0; padding: 16px; }
-    #reader { width: 100%; max-width: 480px; margin: 0 auto; }
-    p { color: #666; }
+    body { font-family: sans-serif; text-align: center; margin: 0; padding: 12px; }
+    #reader { width: 100%; max-width: 520px; margin: 0 auto; }
+    #msg { color: #666; margin: 10px 0; }
+    input { font-size: 18px; padding: 10px; width: 60%; }
+    button { font-size: 18px; padding: 10px 16px; border: none; border-radius: 10px;
+             background: #2AABEE; color: #fff; }
   </style>
 </head>
 <body>
-  <h3>📷 Сканер штрихкода</h3>
   <div id="reader"></div>
-  <p id="msg">Наведите камеру на штрихкод</p>
+  <p id="msg">Загрузка камеры…</p>
+  <p>Не читается? Введите цифры вручную:</p>
+  <input id="manual" type="tel" inputmode="numeric" placeholder="4870001234567">
+  <button onclick="sendManual()">OK</button>
 
   <script>
     const tg = window.Telegram.WebApp;
-    tg.ready();
-    tg.expand();
-
-    const F = Html5QrcodeSupportedFormats;
-    const scanner = new Html5Qrcode("reader", {
-      formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E,
-                         F.CODE_128, F.CODE_39, F.QR_CODE],
-      useBarCodeDetectorIfSupported: true
-    });
-
+    tg.ready(); tg.expand();
+    const msg = document.getElementById("msg");
     let done = false;
-    scanner.start(
-      { facingMode: "environment" },
-      { fps: 10, qrbox: { width: 280, height: 140 } },
-      function (code) {
-        if (done) return;
-        done = true;
-        scanner.stop().catch(function () {});
-        tg.sendData(code);   // отправляет код боту и закрывает окно
-      },
-      function () {}
-    ).catch(function (e) {
-      document.getElementById("msg").textContent = "Нет доступа к камере: " + e;
-    });
+
+    function send(code) {
+      if (done) return;
+      done = true;
+      msg.textContent = "Считано: " + code;
+      tg.sendData(code);
+    }
+    function sendManual() {
+      const v = document.getElementById("manual").value.trim();
+      if (v) send(v);
+    }
+
+    if (typeof Html5Qrcode === "undefined") {
+      msg.textContent = "Библиотека не загрузилась. Используйте ввод вручную.";
+    } else {
+      const F = Html5QrcodeSupportedFormats;
+      const scanner = new Html5Qrcode("reader", {
+        formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.CODE_128, F.CODE_39],
+        useBarCodeDetectorIfSupported: true,
+        verbose: false
+      });
+      scanner.start(
+        { facingMode: "environment",
+          width: { ideal: 1920 }, height: { ideal: 1080 } },
+        { fps: 15,
+          qrbox: function (w, h) {
+            return { width: Math.floor(w * 0.9), height: Math.floor(h * 0.35) };
+          } },
+        function (code) { scanner.stop().catch(function () {}); send(code); },
+        function () {}
+      ).then(function () {
+        msg.textContent = "Держите штрихкод в рамке, 15–20 см, без бликов";
+      }).catch(function (e) {
+        msg.textContent = "Нет доступа к камере: " + e;
+      });
+    }
   </script>
 </body>
 </html>
