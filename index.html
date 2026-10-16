@@ -44,7 +44,8 @@
     } else {
       const F = Html5QrcodeSupportedFormats;
       const scanner = new Html5Qrcode("reader", {
-        formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.CODE_128, F.CODE_39],
+        formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E,
+                           F.CODE_128, F.CODE_39, F.ITF, F.QR_CODE],
         useBarCodeDetectorIfSupported: true,
         verbose: false
       });
