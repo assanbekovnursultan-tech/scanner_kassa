@@ -2,32 +2,47 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Сканер штрихкода</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <style>
-    body { font-family: sans-serif; text-align: center; padding: 40px 20px; }
-    button { font-size: 20px; padding: 16px 32px; border-radius: 12px;
-             border: none; background: #2AABEE; color: white; }
+    body { font-family: sans-serif; text-align: center; margin: 0; padding: 16px; }
+    #reader { width: 100%; max-width: 480px; margin: 0 auto; }
     p { color: #666; }
   </style>
 </head>
 <body>
-  <h2>📷 Сканер штрихкода</h2>
-  <p>Нажмите кнопку и наведите камеру на штрихкод</p>
-  <button onclick="scan()">Открыть сканер</button>
+  <h3>📷 Сканер штрихкода</h3>
+  <div id="reader"></div>
+  <p id="msg">Наведите камеру на штрихкод</p>
 
   <script>
     const tg = window.Telegram.WebApp;
     tg.ready();
     tg.expand();
 
-    function scan() {
-      tg.showScanQrPopup({ text: "Наведите на штрихкод" }, function (result) {
-        if (!result) return true;
-        tg.sendData(result);   // отправляет код боту
-        return true;           // закрыть сканер
-      });
-    }
+    const F = Html5QrcodeSupportedFormats;
+    const scanner = new Html5Qrcode("reader", {
+      formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E,
+                         F.CODE_128, F.CODE_39, F.QR_CODE],
+      useBarCodeDetectorIfSupported: true
+    });
+
+    let done = false;
+    scanner.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: { width: 280, height: 140 } },
+      function (code) {
+        if (done) return;
+        done = true;
+        scanner.stop().catch(function () {});
+        tg.sendData(code);   // отправляет код боту и закрывает окно
+      },
+      function () {}
+    ).catch(function (e) {
+      document.getElementById("msg").textContent = "Нет доступа к камере: " + e;
+    });
   </script>
 </body>
 </html>
