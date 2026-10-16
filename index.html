@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Сканер штрихкода</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    body { font-family: sans-serif; text-align: center; padding: 40px 20px; }
+    button { font-size: 20px; padding: 16px 32px; border-radius: 12px;
+             border: none; background: #2AABEE; color: white; }
+    p { color: #666; }
+  </style>
+</head>
+<body>
+  <h2>📷 Сканер штрихкода</h2>
+  <p>Нажмите кнопку и наведите камеру на штрихкод</p>
+  <button onclick="scan()">Открыть сканер</button>
+
+  <script>
+    const tg = window.Telegram.WebApp;
+    tg.ready();
+    tg.expand();
+
+    function scan() {
+      tg.showScanQrPopup({ text: "Наведите на штрихкод" }, function (result) {
+        if (!result) return true;
+        tg.sendData(result);   // отправляет код боту
+        return true;           // закрыть сканер
+      });
+    }
+  </script>
+</body>
+</html>
