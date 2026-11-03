@@ -8,78 +8,26 @@
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        body {
-            margin: 0; padding: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: #1a1a1a; color: #fff;
-            height: 100vh; display: flex; flex-direction: column; overflow: hidden;
-        }
-        #video-wrap {
-            position: relative; flex: 1;
-            background: #000; overflow: hidden;
-            display: flex; align-items: center; justify-content: center;
-        }
+        body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #1a1a1a; color: #fff; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+        #video-wrap { position: relative; flex: 1; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; }
         video { width: 100%; height: 100%; object-fit: cover; }
-        #overlay {
-            position: absolute; top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            width: 75%; max-width: 340px;
-            aspect-ratio: 2/1;
-            border: 3px solid #00ff88; border-radius: 8px;
-            box-shadow: 0 0 0 9999px rgba(0,0,0,0.4);
-            pointer-events: none;
-        }
-        #torch-btn {
-            position: absolute; top: 16px; right: 16px;
-            width: 56px; height: 56px; border-radius: 50%;
-            background: rgba(0,0,0,0.6); color: #fff;
-            border: 2px solid rgba(255,255,255,0.3);
-            font-size: 24px; cursor: pointer;
-            display: flex; align-items: center; justify-content: center;
-            z-index: 10;
-        }
+        #overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 75%; max-width: 340px; aspect-ratio: 2/1; border: 3px solid #00ff88; border-radius: 8px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.4); pointer-events: none; }
+        #torch-btn { position: absolute; top: 16px; right: 16px; width: 56px; height: 56px; border-radius: 50%; background: rgba(0,0,0,0.6); color: #fff; border: 2px solid rgba(255,255,255,0.3); font-size: 24px; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 10; }
         #torch-btn.active { background: #ffcc00; color: #000; }
-        #status {
-            position: absolute; top: 16px; left: 16px;
-            background: rgba(0,0,0,0.7);
-            padding: 8px 16px; border-radius: 20px;
-            font-size: 14px; z-index: 10; max-width: 60%;
-        }
-        #list {
-            background: #222; max-height: 32vh; overflow-y: auto;
-            border-top: 1px solid #333;
-        }
+        #status { position: absolute; top: 16px; left: 16px; background: rgba(0,0,0,0.7); padding: 8px 16px; border-radius: 20px; font-size: 14px; z-index: 10; max-width: 60%; }
+        #list { background: #222; max-height: 35vh; overflow-y: auto; border-top: 1px solid #333; }
         #list:empty { display: none; }
-        .item {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 10px 16px; border-bottom: 1px solid #333;
-            font-size: 15px;
-        }
-        .item:last-child { border-bottom: none; }
-        .item .code { color: #00ff88; font-weight: 600; font-family: monospace; }
-        .item .del {
-            background: #ff4444; color: #fff; border: none;
-            width: 32px; height: 32px; border-radius: 50%;
-            font-size: 18px; cursor: pointer; line-height: 1;
-        }
-        #actions {
-            display: flex; gap: 8px; padding: 12px;
-            background: #222; border-top: 1px solid #333;
-        }
-        #actions button {
-            flex: 1; padding: 14px; border: none; border-radius: 8px;
-            font-size: 15px; font-weight: 600; cursor: pointer;
-            background: #3a7bd5; color: #fff;
-        }
+        .item { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #333; font-size: 15px; cursor: pointer; }
+        .item:active { background: #333; }
+        .item .code { color: #00ff88; font-family: monospace; }
+        .item .qty { font-weight: bold; color: #ffcc00; margin: 0 10px; background: #333; padding: 2px 8px; border-radius: 4px; }
+        .item .del { background: #ff4444; color: #fff; border: none; width: 28px; height: 28px; border-radius: 50%; font-size: 16px; cursor: pointer; line-height: 1; }
+        #actions { display: flex; gap: 8px; padding: 12px; background: #222; border-top: 1px solid #333; }
+        #actions button { flex: 1; padding: 14px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; background: #3a7bd5; color: #fff; }
         #actions button:disabled { opacity: 0.4; cursor: not-allowed; }
         #actions button.primary { background: #00aa55; }
         #actions button.warn { background: #ff8800; }
-        #error {
-            position: absolute; top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(200,0,0,0.95); padding: 20px; border-radius: 12px;
-            text-align: center; max-width: 80%; z-index: 20;
-        }
+        #error { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(200,0,0,0.95); padding: 20px; border-radius: 12px; text-align: center; max-width: 80%; z-index: 20; }
     </style>
 </head>
 <body>
@@ -100,7 +48,7 @@
     const tg = window.Telegram.WebApp;
     tg.expand(); tg.ready();
 
-    const scanned = [];
+    let scannedMap = {}; // { "code": qty }
     let torchOn = false;
     let torchSupported = false;
     let detector = null;
@@ -118,27 +66,9 @@
     const manualBtn = document.getElementById('manual-btn');
     const errorBox = document.getElementById('error');
 
-    function beep() {
-        try {
-            const ctx = new (window.AudioContext || window.webkitAudioContext)();
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.connect(gain); gain.connect(ctx.destination);
-            osc.frequency.value = 1100;
-            gain.gain.value = 0.2;
-            osc.start();
-            setTimeout(() => { osc.stop(); ctx.close(); }, 80);
-        } catch(e) {}
-    }
-
-    function vibrate() {
-        try { navigator.vibrate && navigator.vibrate(80); } catch(e) {}
-    }
-
-    function showError(text) {
-        errorBox.textContent = text;
-        errorBox.style.display = 'block';
-    }
+    function beep() { try { const ctx = new (window.AudioContext || window.webkitAudioContext)(); const osc = ctx.createOscillator(); const gain = ctx.createGain(); osc.connect(gain); gain.connect(ctx.destination); osc.frequency.value = 1100; gain.gain.value = 0.2; osc.start(); setTimeout(() => { osc.stop(); ctx.close(); }, 80); } catch(e) {} }
+    function vibrate() { try { navigator.vibrate && navigator.vibrate(80); } catch(e) {} }
+    function showError(text) { errorBox.textContent = text; errorBox.style.display = 'block'; }
 
     function addCode(code) {
         code = String(code).trim();
@@ -147,54 +77,76 @@
         if (code === lastCode && now - lastCodeTime < 2000) return;
         lastCode = code; lastCodeTime = now;
 
-        if (scanned.includes(code)) {
-            status.textContent = `⚠️ Уже есть: ${code}`;
-            return;
+        if (scannedMap[code]) {
+            scannedMap[code] += 1;
+        } else {
+            scannedMap[code] = 1;
         }
-        scanned.push(code);
+        
         beep(); vibrate();
-        status.textContent = `✅ ${code}`;
+        status.textContent = `✅ ${code} (${scannedMap[code]} шт.)`;
         renderList();
         updateSendBtn();
     }
 
+    // Тап по строке — ручной ввод количества
+    function editQty(code) {
+        const current = scannedMap[code] || 1;
+        const input = prompt(`Сколько? (для ${code})\nМожно дробное, например 2.5`, current);
+        if (input === null) return;
+        
+        const val = parseFloat(input.replace(",", "."));
+        if (isNaN(val) || val <= 0) {
+            alert("Введите число больше нуля");
+            return;
+        }
+        scannedMap[code] = val;
+        renderList();
+        updateSendBtn();
+        status.textContent = `✏️ ${code} → ${val} шт.`;
+    }
+
     function renderList() {
         list.innerHTML = '';
-        scanned.forEach((code, i) => {
+        Object.keys(scannedMap).forEach(code => {
             const div = document.createElement('div');
             div.className = 'item';
-            div.innerHTML = `<span class="code">${code}</span>`;
+            div.onclick = (e) => {
+                if (e.target.tagName !== 'BUTTON') editQty(code);
+            };
+            
+            div.innerHTML = `<span class="code">${code}</span>
+                             <span class="qty">${scannedMap[code]} шт.</span>`;
+            
             const del = document.createElement('button');
             del.className = 'del'; del.textContent = '×';
-            del.onclick = () => {
-                scanned.splice(i, 1);
-                renderList();
-                updateSendBtn();
+            del.onclick = (e) => { 
+                e.stopPropagation();
+                delete scannedMap[code]; 
+                renderList(); 
+                updateSendBtn(); 
             };
+            
             div.appendChild(del);
             list.appendChild(div);
         });
     }
 
     function updateSendBtn() {
-        sendBtn.textContent = `📤 Отправить (${scanned.length})`;
-        sendBtn.disabled = scanned.length === 0;
+        const total = Object.values(scannedMap).reduce((a, b) => a + b, 0);
+        sendBtn.textContent = `📤 Отправить (${total})`;
+        sendBtn.disabled = total === 0;
     }
 
     async function initCamera() {
         try {
-            videoStream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
-            });
+            videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } });
             video.srcObject = videoStream;
             videoTrack = videoStream.getVideoTracks()[0];
             const caps = videoTrack.getCapabilities ? videoTrack.getCapabilities() : {};
             torchSupported = !!caps.torch;
             if (torchSupported) torchBtn.style.display = 'flex';
-        } catch (e) {
-            showError('Нет доступа к камере: ' + e.message);
-            return false;
-        }
+        } catch (e) { showError('Нет доступа к камере: ' + e.message); return false; }
         return true;
     }
 
@@ -202,8 +154,7 @@
         if ('BarcodeDetector' in window) {
             try {
                 const formats = await BarcodeDetector.getSupportedFormats();
-                const need = ['ean_13', 'ean_8', 'code_128', 'code_39',
-                              'upc_a', 'upc_e', 'itf'];
+                const need = ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'itf'];
                 const supported = need.filter(f => formats.includes(f));
                 detector = new BarcodeDetector({ formats: supported });
                 return true;
@@ -215,10 +166,7 @@
     async function scanLoop() {
         while (scanning) {
             if (video.readyState >= 2 && detector) {
-                try {
-                    const codes = await detector.detect(video);
-                    for (const c of codes) addCode(c.rawValue);
-                } catch(e) {}
+                try { const codes = await detector.detect(video); for (const c of codes) addCode(c.rawValue); } catch(e) {}
             }
             await new Promise(r => setTimeout(r, 200));
         }
@@ -231,35 +179,23 @@
         document.getElementById('video-wrap').appendChild(fb);
         video.style.display = 'none';
         document.getElementById('overlay').style.display = 'none';
-        status.textContent = 'iOS режим (медленнее)';
+        status.textContent = 'iOS режим';
 
         const html5 = new Html5Qrcode('fallback-reader');
-        html5.start(
-            { facingMode: 'environment' },
-            { fps: 10, qrbox: { width: 260, height: 160 } },
-            (text) => addCode(text),
-            () => {}
-        ).catch(e => showError('Fallback: ' + e.message));
+        html5.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 260, height: 160 } }, (text) => addCode(text), () => {}).catch(e => showError('Fallback: ' + e.message));
     }
 
-    torchBtn.onclick = async () => {
-        if (!torchSupported || !videoTrack) return;
-        try {
-            torchOn = !torchOn;
-            await videoTrack.applyConstraints({ advanced: [{ torch: torchOn }] });
-            torchBtn.classList.toggle('active', torchOn);
-        } catch(e) {}
+    torchBtn.onclick = async () => { if (!torchSupported || !videoTrack) return; try { torchOn = !torchOn; await videoTrack.applyConstraints({ advanced: [{ torch: torchOn }] }); torchBtn.classList.toggle('active', torchOn); } catch(e) {} };
+    
+    manualBtn.onclick = () => { 
+        const code = prompt('Введите штрихкод:'); 
+        if (code && code.trim()) addCode(code.trim()); 
     };
-
-    manualBtn.onclick = () => {
-        const code = prompt('Введите штрихкод:');
-        if (code && code.trim()) addCode(code.trim());
-    };
-
+    
     sendBtn.onclick = () => {
-        if (!scanned.length) return;
-        const payload = scanned.length === 1 ? scanned[0] : JSON.stringify(scanned);
-        tg.sendData(payload);
+        if (!scannedMap || Object.keys(scannedMap).length === 0) return;
+        const payload = { items: scannedMap };
+        tg.sendData(JSON.stringify(payload));
     };
 
     (async () => {
