@@ -48,7 +48,7 @@
 
 <script>
     // ============================================================
-    // ВСТАВЬ СЮДА ССЫЛКУ ИЗ GOOGLE SHEETS (Файл → Поделиться → Опубликовать в интернете → CSV)
+    // ССЫЛКА ИЗ GOOGLE SHEETS (опубликована в интернете как CSV)
     // ============================================================
     const CATALOG_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQPB1XAYLQrEnvmwCKjLvOXOZKEqXMDrD3JAvsFiyvG2mnA_k9YSJXxaiVOikuwxE7PG7ACXcnfWYLy/pub?gid=1294329108&single=true&output=csv";
 
@@ -190,6 +190,17 @@
             
             const lastSeen = currentlyVisible.get(code);
             if (lastSeen !== undefined && now - lastSeen < 1500) { currentlyVisible.set(code, now); continue; }
+
+            // === НОВОЕ: если каталог загружен, проверяем наличие товара ===
+            if (catalogMap.size > 0) {
+                const prod = catalogMap.get(code);
+                if (!prod) {
+                    status.textContent = `⚠️ Нет в каталоге: ${code}`;
+                    currentlyVisible.set(code, now);
+                    continue; // не добавляем в scannedMap
+                }
+            }
+            // ================================================================
             
             if (scannedMap[code]) scannedMap[code] += 1;
             else scannedMap[code] = 1;
@@ -329,9 +340,7 @@
     };
 
     (async () => {
-        // Инициализируем аудио при загрузке
         initAudio();
-        // Пытаемся перевести AudioContext в running при первом клике
         document.body.addEventListener('click', initAudio, { once: true });
         document.body.addEventListener('touchstart', initAudio, { once: true });
 
