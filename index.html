@@ -10,7 +10,7 @@
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #1a1a1a; color: #fff; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
         #video-wrap { position: relative; flex: 1; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-        video { width: 100%; height: 100%; object-fit: cover; transform: scale(1.5); }
+        video { width: 100%; height: 100%; object-fit: cover; }
         #overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 75%; max-width: 340px; aspect-ratio: 2/1; border: 3px solid #00ff88; border-radius: 8px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.4); pointer-events: none; }
         #torch-btn { position: absolute; top: 16px; right: 16px; width: 56px; height: 56px; border-radius: 50%; background: rgba(0,0,0,0.6); color: #fff; border: 2px solid rgba(255,255,255,0.3); font-size: 24px; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 10; }
         #torch-btn.active { background: #ffcc00; color: #000; }
@@ -57,13 +57,40 @@
 
     let scannedMap = {};
     let currentlyVisible = new Map();
-    let catalogMap = new Map(); // barcode -> { name, price, stock }
+    let catalogMap = new Map();
     let torchOn = false;
     let torchSupported = false;
     let detector = null;
     let videoStream = null;
     let videoTrack = null;
     let scanning = true;
+
+    // === ЕДИНЫЙ AudioContext (создаётся один раз) ===
+    let audioCtx = null;
+    function initAudio() {
+        try {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        } catch(e) { console.error("audio init:", e); }
+    }
+    function beep() {
+        if (!audioCtx) return;
+        try {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.frequency.value = 1100;
+            gain.gain.value = 0.15;
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.08);
+        } catch(e) {}
+    }
+    function vibrate() { try { navigator.vibrate && navigator.vibrate(80); } catch(e) {} }
 
     const video = document.getElementById('video');
     const list = document.getElementById('list');
@@ -73,14 +100,10 @@
     const manualBtn = document.getElementById('manual-btn');
     const errorBox = document.getElementById('error');
 
-    function beep() { try { const ctx = new (window.AudioContext || window.webkitAudioContext)(); const osc = ctx.createOscillator(); const gain = ctx.createGain(); osc.connect(gain); gain.connect(ctx.destination); osc.frequency.value = 1100; gain.gain.value = 0.2; osc.start(); setTimeout(() => { osc.stop(); ctx.close(); }, 80); } catch(e) {} }
-    function vibrate() { try { navigator.vibrate && navigator.vibrate(80); } catch(e) {} }
     function showError(text) { errorBox.textContent = text; errorBox.style.display = 'block'; }
 
-    // ---------- Загрузка каталога ----------
     async function loadCatalog() {
         if (!CATALOG_CSV_URL || CATALOG_CSV_URL.includes("ВСТАВЬ_СЮДА")) {
-            console.log("Каталог не задан — показываем только штрихкоды");
             return false;
         }
         try {
@@ -88,15 +111,13 @@
             if (!resp.ok) throw new Error("HTTP " + resp.status);
             const text = await resp.text();
             const rows = parseCSV(text);
-            // Первая строка — заголовки. Ищем колонки по названиям.
             if (rows.length < 2) return false;
-            const header = rows[0].map(h => h.trim().toLowerCase());
+            const header = rows[0].map(h => String(h).trim().toLowerCase());
             const iSku = header.findIndex(h => h.includes("артикул"));
             const iName = header.findIndex(h => h.includes("название"));
             const iPrice = header.findIndex(h => h.includes("цена розница") || h === "цена");
             const iStock = header.findIndex(h => h.includes("остаток"));
             const iBc = header.findIndex(h => h.includes("штрихкод"));
-
             for (let i = 1; i < rows.length; i++) {
                 const r = rows[i];
                 if (r.length < 2) continue;
@@ -109,15 +130,13 @@
                     stock: parseFloat((r[iStock] || "0").replace(",", ".")) || 0,
                 });
             }
-            console.log("Каталог загружен:", catalogMap.size, "товаров");
             return true;
         } catch (e) {
-            console.error("Не удалось загрузить каталог:", e);
+            console.error("catalog load:", e);
             return false;
         }
     }
 
-    // Простой CSV-парсер (учитывает кавычки)
     function parseCSV(text) {
         const rows = [];
         let row = [], cur = "", inQuotes = false;
@@ -141,7 +160,6 @@
         return rows;
     }
 
-    // ---------- Валидация штрихкодов ----------
     function isValidEAN13(code) {
         if (!/^\d{13}$/.test(code)) return false;
         let sum = 0;
@@ -161,38 +179,29 @@
         return false;
     }
 
-    function getCropRegion() {
-        const vw = video.videoWidth, vh = video.videoHeight;
-        if (!vw || !vh) return null;
-        const w = vw * 0.85, h = vh * 0.85;
-        return { x: (vw - w) / 2, y: (vh - h) / 2, w, h };
-    }
-    function isInsideROI(barcodeBox, roi) {
-        if (!barcodeBox) return true;
-        const bcx = barcodeBox.x + barcodeBox.width / 2;
-        const bcy = barcodeBox.y + barcodeBox.height / 2;
-        return (bcx >= roi.x && bcx <= roi.x + roi.w && bcy >= roi.y && bcy <= roi.y + roi.h);
-    }
-
     async function processCodes(detectedCodes) {
         const now = Date.now();
+        let changed = false;
         for (const c of detectedCodes) {
             const code = String(c.rawValue).trim();
             if (!code) continue;
             if (c.format && c.format !== 'ean_13' && c.format !== 'ean_8' && c.format !== 'code_128' && c.format !== 'code_39') continue;
-            if (!isValidBarcode(code)) { status.textContent = `⚠️ Неверный код: ${code}`; continue; }
+            if (!isValidBarcode(code)) { status.textContent = `⚠️ ${code}`; continue; }
+            
             const lastSeen = currentlyVisible.get(code);
-            if (lastSeen !== undefined && now - lastSeen < 2000) { currentlyVisible.set(code, now); continue; }
+            if (lastSeen !== undefined && now - lastSeen < 1500) { currentlyVisible.set(code, now); continue; }
+            
             if (scannedMap[code]) scannedMap[code] += 1;
             else scannedMap[code] = 1;
             currentlyVisible.set(code, now);
+            changed = true;
             beep(); vibrate();
+            
             const prod = catalogMap.get(code);
             status.textContent = prod ? `✅ ${prod.name}` : `✅ ${code}`;
         }
         for (const [code, t] of currentlyVisible) { if (now - t > 10000) currentlyVisible.delete(code); }
-        renderList();
-        updateSendBtn();
+        if (changed) { renderList(); updateSendBtn(); }
     }
 
     function editQty(code) {
@@ -216,7 +225,7 @@
             div.className = 'item';
             div.onclick = (e) => { if (e.target.tagName !== 'BUTTON') editQty(code); };
             const nameHtml = prod
-                ? `<div class="name">${prod.name}</div><div class="code">${code} · ${prod.price}₸ · остаток: ${prod.stock}</div>`
+                ? `<div class="name">${prod.name}</div><div class="code">${code} · ${prod.price}₸ · ост: ${prod.stock}</div>`
                 : `<div class="code">${code}</div>`;
             div.innerHTML = `<div class="info">${nameHtml}</div><span class="qty">${scannedMap[code]} шт.</span>`;
             const del = document.createElement('button');
@@ -236,17 +245,17 @@
     async function initCamera() {
         try {
             videoStream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }
+                video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
             });
             video.srcObject = videoStream;
             videoTrack = videoStream.getVideoTracks()[0];
             const caps = videoTrack.getCapabilities ? videoTrack.getCapabilities() : {};
             torchSupported = !!caps.torch;
             if (torchSupported) torchBtn.style.display = 'flex';
-            if (caps.zoom) {
+            if (caps.zoom && caps.zoom.max > 1) {
                 try {
-                    const targetZoom = Math.min(2.0, caps.zoom.max);
-                    if (targetZoom > 1) await videoTrack.applyConstraints({ advanced: [{ zoom: targetZoom }] });
+                    const targetZoom = Math.min(1.5, caps.zoom.max);
+                    await videoTrack.applyConstraints({ advanced: [{ zoom: targetZoom }] });
                 } catch(e) {}
             }
         } catch (e) { showError('Нет доступа к камере: ' + e.message); return false; }
@@ -268,16 +277,11 @@
 
     async function scanLoop() {
         while (scanning) {
-            if (video.readyState >= 2 && detector) {
+            if (video.readyState >= 2 && !video.paused && !video.ended && detector) {
                 try {
-                    const region = getCropRegion();
                     const codes = await detector.detect(video);
-                    const validCodes = [];
-                    if (region) {
-                        for (const c of codes) if (isInsideROI(c.boundingBox, region)) validCodes.push(c);
-                    } else validCodes.push(...codes);
-                    if (validCodes.length > 0) await processCodes(validCodes);
-                } catch(e) {}
+                    if (codes.length > 0) await processCodes(codes);
+                } catch(e) { /* ignore */ }
             }
             await new Promise(r => setTimeout(r, 50));
         }
@@ -325,11 +329,16 @@
     };
 
     (async () => {
-        // Сначала загружаем каталог, потом включаем камеру
+        // Инициализируем аудио при загрузке
+        initAudio();
+        // Пытаемся перевести AudioContext в running при первом клике
+        document.body.addEventListener('click', initAudio, { once: true });
+        document.body.addEventListener('touchstart', initAudio, { once: true });
+
         const hasCatalog = await loadCatalog();
         status.textContent = hasCatalog
             ? `Каталог загружен (${catalogMap.size})`
-            : "Каталог не загружен — только штрихкоды";
+            : "Каталог не загружен";
 
         if (!await initCamera()) return;
         const ok = await initDetector();
