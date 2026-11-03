@@ -10,21 +10,20 @@
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #1a1a1a; color: #fff; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
         #video-wrap { position: relative; flex: 1; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-        
-        /* ВОТ ЗДЕСЬ МЫ СРАЗУ ПРИБЛИЖАЕМ КАМЕРУ */
-        video { width: 100%; height: 100%; object-fit: cover; transform: scale(1.8); }
-        
+        video { width: 100%; height: 100%; object-fit: cover; transform: scale(1.5); }
         #overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 75%; max-width: 340px; aspect-ratio: 2/1; border: 3px solid #00ff88; border-radius: 8px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.4); pointer-events: none; }
         #torch-btn { position: absolute; top: 16px; right: 16px; width: 56px; height: 56px; border-radius: 50%; background: rgba(0,0,0,0.6); color: #fff; border: 2px solid rgba(255,255,255,0.3); font-size: 24px; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 10; }
         #torch-btn.active { background: #ffcc00; color: #000; }
         #status { position: absolute; top: 16px; left: 16px; background: rgba(0,0,0,0.7); padding: 8px 16px; border-radius: 20px; font-size: 14px; z-index: 10; max-width: 60%; }
         #list { background: #222; max-height: 35vh; overflow-y: auto; border-top: 1px solid #333; }
         #list:empty { display: none; }
-        .item { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #333; font-size: 15px; cursor: pointer; }
+        .item { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #333; font-size: 15px; cursor: pointer; gap: 8px; }
         .item:active { background: #333; }
-        .item .code { color: #00ff88; font-family: monospace; }
-        .item .qty { font-weight: bold; color: #ffcc00; margin: 0 10px; background: #333; padding: 2px 8px; border-radius: 4px; }
-        .item .del { background: #ff4444; color: #fff; border: none; width: 28px; height: 28px; border-radius: 50%; font-size: 16px; cursor: pointer; line-height: 1; }
+        .item .info { flex: 1; min-width: 0; }
+        .item .name { color: #fff; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .item .code { color: #00ff88; font-family: monospace; font-size: 12px; opacity: 0.7; }
+        .item .qty { font-weight: bold; color: #ffcc00; background: #333; padding: 4px 10px; border-radius: 4px; flex-shrink: 0; }
+        .item .del { background: #ff4444; color: #fff; border: none; width: 28px; height: 28px; border-radius: 50%; font-size: 16px; cursor: pointer; line-height: 1; flex-shrink: 0; }
         #actions { display: flex; gap: 8px; padding: 12px; background: #222; border-top: 1px solid #333; }
         #actions button { flex: 1; padding: 14px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; background: #3a7bd5; color: #fff; }
         #actions button:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -37,7 +36,7 @@
     <div id="video-wrap">
         <video id="video" autoplay muted playsinline></video>
         <div id="overlay"></div>
-        <div id="status">Готов к сканированию</div>
+        <div id="status">Загрузка каталога…</div>
         <button id="torch-btn" style="display:none;">🔦</button>
         <div id="error" style="display:none;"></div>
     </div>
@@ -48,11 +47,17 @@
     </div>
 
 <script>
+    // ============================================================
+    // ВСТАВЬ СЮДА ССЫЛКУ ИЗ GOOGLE SHEETS (Файл → Поделиться → Опубликовать в интернете → CSV)
+    // ============================================================
+    const CATALOG_CSV_URL = "ВСТАВЬ_СЮДА_ССЫЛКУ_ИЗ_ШАГА_1";
+
     const tg = window.Telegram.WebApp;
     tg.expand(); tg.ready();
 
     let scannedMap = {};
     let currentlyVisible = new Map();
+    let catalogMap = new Map(); // barcode -> { name, price, stock }
     let torchOn = false;
     let torchSupported = false;
     let detector = null;
@@ -72,6 +77,71 @@
     function vibrate() { try { navigator.vibrate && navigator.vibrate(80); } catch(e) {} }
     function showError(text) { errorBox.textContent = text; errorBox.style.display = 'block'; }
 
+    // ---------- Загрузка каталога ----------
+    async function loadCatalog() {
+        if (!CATALOG_CSV_URL || CATALOG_CSV_URL.includes("ВСТАВЬ_СЮДА")) {
+            console.log("Каталог не задан — показываем только штрихкоды");
+            return false;
+        }
+        try {
+            const resp = await fetch(CATALOG_CSV_URL, { cache: "no-store" });
+            if (!resp.ok) throw new Error("HTTP " + resp.status);
+            const text = await resp.text();
+            const rows = parseCSV(text);
+            // Первая строка — заголовки. Ищем колонки по названиям.
+            if (rows.length < 2) return false;
+            const header = rows[0].map(h => h.trim().toLowerCase());
+            const iSku = header.findIndex(h => h.includes("артикул"));
+            const iName = header.findIndex(h => h.includes("название"));
+            const iPrice = header.findIndex(h => h.includes("цена розница") || h === "цена");
+            const iStock = header.findIndex(h => h.includes("остаток"));
+            const iBc = header.findIndex(h => h.includes("штрихкод"));
+
+            for (let i = 1; i < rows.length; i++) {
+                const r = rows[i];
+                if (r.length < 2) continue;
+                const bc = (r[iBc] || "").trim();
+                if (!bc) continue;
+                catalogMap.set(bc, {
+                    sku: (r[iSku] || "").trim(),
+                    name: (r[iName] || "").trim() || "Без названия",
+                    price: parseFloat((r[iPrice] || "0").replace(",", ".")) || 0,
+                    stock: parseFloat((r[iStock] || "0").replace(",", ".")) || 0,
+                });
+            }
+            console.log("Каталог загружен:", catalogMap.size, "товаров");
+            return true;
+        } catch (e) {
+            console.error("Не удалось загрузить каталог:", e);
+            return false;
+        }
+    }
+
+    // Простой CSV-парсер (учитывает кавычки)
+    function parseCSV(text) {
+        const rows = [];
+        let row = [], cur = "", inQuotes = false;
+        for (let i = 0; i < text.length; i++) {
+            const c = text[i];
+            if (inQuotes) {
+                if (c === '"') {
+                    if (text[i+1] === '"') { cur += '"'; i++; }
+                    else inQuotes = false;
+                } else cur += c;
+            } else {
+                if (c === '"') inQuotes = true;
+                else if (c === ',') { row.push(cur); cur = ""; }
+                else if (c === '\n' || c === '\r') {
+                    if (cur || row.length) { row.push(cur); rows.push(row); row = []; cur = ""; }
+                    if (c === '\r' && text[i+1] === '\n') i++;
+                } else cur += c;
+            }
+        }
+        if (cur || row.length) { row.push(cur); rows.push(row); }
+        return rows;
+    }
+
+    // ---------- Валидация штрихкодов ----------
     function isValidEAN13(code) {
         if (!/^\d{13}$/.test(code)) return false;
         let sum = 0;
@@ -91,26 +161,17 @@
         return false;
     }
 
-    // Так как мы визуально приблизили камеру на 1.8, сканеру нужно сказать
-    // брать ровно центральную часть экрана.
     function getCropRegion() {
         const vw = video.videoWidth, vh = video.videoHeight;
         if (!vw || !vh) return null;
-
-        const w = vw * 0.5; // 50% ширины
-        const h = vh * 0.5; // 50% высоты
-        const x = (vw - w) / 2;
-        const y = (vh - h) / 2;
-        
-        return { x, y, w, h };
+        const w = vw * 0.85, h = vh * 0.85;
+        return { x: (vw - w) / 2, y: (vh - h) / 2, w, h };
     }
-
     function isInsideROI(barcodeBox, roi) {
-        if (!barcodeBox) return true; 
+        if (!barcodeBox) return true;
         const bcx = barcodeBox.x + barcodeBox.width / 2;
         const bcy = barcodeBox.y + barcodeBox.height / 2;
-        return (bcx >= roi.x && bcx <= roi.x + roi.w &&
-                bcy >= roi.y && bcy <= roi.y + roi.h);
+        return (bcx >= roi.x && bcx <= roi.x + roi.w && bcy >= roi.y && bcy <= roi.y + roi.h);
     }
 
     async function processCodes(detectedCodes) {
@@ -118,56 +179,46 @@
         for (const c of detectedCodes) {
             const code = String(c.rawValue).trim();
             if (!code) continue;
-
-            if (c.format !== 'ean_13' && c.format !== 'ean_8' && c.format !== 'code_128' && c.format !== 'code_39') {
-                continue; 
-            }
-
-            if (!isValidBarcode(code)) {
-                status.textContent = `⚠️ Неверный код: ${code}`;
-                continue;
-            }
-
+            if (c.format && c.format !== 'ean_13' && c.format !== 'ean_8' && c.format !== 'code_128' && c.format !== 'code_39') continue;
+            if (!isValidBarcode(code)) { status.textContent = `⚠️ Неверный код: ${code}`; continue; }
             const lastSeen = currentlyVisible.get(code);
-            if (lastSeen !== undefined && now - lastSeen < 2000) {
-                currentlyVisible.set(code, now);
-                continue;
-            }
-
+            if (lastSeen !== undefined && now - lastSeen < 2000) { currentlyVisible.set(code, now); continue; }
             if (scannedMap[code]) scannedMap[code] += 1;
             else scannedMap[code] = 1;
             currentlyVisible.set(code, now);
             beep(); vibrate();
-            status.textContent = `✅ ${code}`;
+            const prod = catalogMap.get(code);
+            status.textContent = prod ? `✅ ${prod.name}` : `✅ ${code}`;
         }
-
-        for (const [code, t] of currentlyVisible) {
-            if (now - t > 10000) currentlyVisible.delete(code);
-        }
-
+        for (const [code, t] of currentlyVisible) { if (now - t > 10000) currentlyVisible.delete(code); }
         renderList();
         updateSendBtn();
     }
 
     function editQty(code) {
+        const prod = catalogMap.get(code);
+        const label = prod ? prod.name : code;
         const current = scannedMap[code] || 1;
-        const input = prompt(`Сколько? (для ${code})\nМожно дробное, например 2.5`, current);
+        const input = prompt(`Сколько "${label}"?\nМожно дробное, например 2.5`, current);
         if (input === null) return;
         const val = parseFloat(input.replace(",", "."));
         if (isNaN(val) || val <= 0) { alert("Введите число больше нуля"); return; }
         scannedMap[code] = val;
         renderList();
         updateSendBtn();
-        status.textContent = `✏️ ${code} → ${val} шт.`;
     }
 
     function renderList() {
         list.innerHTML = '';
         Object.keys(scannedMap).forEach(code => {
+            const prod = catalogMap.get(code);
             const div = document.createElement('div');
             div.className = 'item';
             div.onclick = (e) => { if (e.target.tagName !== 'BUTTON') editQty(code); };
-            div.innerHTML = `<span class="code">${code}</span><span class="qty">${scannedMap[code]} шт.</span>`;
+            const nameHtml = prod
+                ? `<div class="name">${prod.name}</div><div class="code">${code} · ${prod.price}₸ · остаток: ${prod.stock}</div>`
+                : `<div class="code">${code}</div>`;
+            div.innerHTML = `<div class="info">${nameHtml}</div><span class="qty">${scannedMap[code]} шт.</span>`;
             const del = document.createElement('button');
             del.className = 'del'; del.textContent = '×';
             del.onclick = (e) => { e.stopPropagation(); delete scannedMap[code]; renderList(); updateSendBtn(); };
@@ -185,13 +236,19 @@
     async function initCamera() {
         try {
             videoStream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+                video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }
             });
             video.srcObject = videoStream;
             videoTrack = videoStream.getVideoTracks()[0];
             const caps = videoTrack.getCapabilities ? videoTrack.getCapabilities() : {};
             torchSupported = !!caps.torch;
             if (torchSupported) torchBtn.style.display = 'flex';
+            if (caps.zoom) {
+                try {
+                    const targetZoom = Math.min(2.0, caps.zoom.max);
+                    if (targetZoom > 1) await videoTrack.applyConstraints({ advanced: [{ zoom: targetZoom }] });
+                } catch(e) {}
+            }
         } catch (e) { showError('Нет доступа к камере: ' + e.message); return false; }
         return true;
     }
@@ -214,28 +271,15 @@
             if (video.readyState >= 2 && detector) {
                 try {
                     const region = getCropRegion();
-                    
-                    // Сканируем ВСЁ ВИДЕО (для максимальной чувствительности)
                     const codes = await detector.detect(video);
-                    
                     const validCodes = [];
                     if (region) {
-                        for (const c of codes) {
-                            // Берем только те, что попали в нашу виртуальную зону
-                            if (isInsideROI(c.boundingBox, region)) {
-                                validCodes.push(c);
-                            }
-                        }
-                    } else {
-                        validCodes.push(...codes);
-                    }
-                    
-                    if (validCodes.length > 0) {
-                        await processCodes(validCodes);
-                    }
-                } catch(e) { /* ignore */ }
+                        for (const c of codes) if (isInsideROI(c.boundingBox, region)) validCodes.push(c);
+                    } else validCodes.push(...codes);
+                    if (validCodes.length > 0) await processCodes(validCodes);
+                } catch(e) {}
             }
-            await new Promise(r => setTimeout(r, 100));
+            await new Promise(r => setTimeout(r, 50));
         }
     }
 
@@ -247,7 +291,6 @@
         video.style.display = 'none';
         document.getElementById('overlay').style.display = 'none';
         status.textContent = 'iOS режим';
-
         const html5 = new Html5Qrcode('fallback-reader');
         html5.start(
             { facingMode: 'environment' },
@@ -282,6 +325,12 @@
     };
 
     (async () => {
+        // Сначала загружаем каталог, потом включаем камеру
+        const hasCatalog = await loadCatalog();
+        status.textContent = hasCatalog
+            ? `Каталог загружен (${catalogMap.size})`
+            : "Каталог не загружен — только штрихкоды";
+
         if (!await initCamera()) return;
         const ok = await initDetector();
         if (ok) scanLoop();
