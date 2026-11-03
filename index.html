@@ -9,16 +9,26 @@
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #1a1a1a; color: #fff; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+        
         #video-wrap { position: relative; flex: 1; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+        video { width: 100%; height: 100%; object-fit: cover; }
         
-        /* Легкое визуальное приближение. Если штрихкод мелкий — поднеси телефон ближе */
-        video { width: 100%; height: 100%; object-fit: cover; transform: scale(1.3); }
+        /* Квадратная зеленая рамка */
+        #overlay { 
+            position: absolute; top: 50%; left: 50%; 
+            transform: translate(-50%, -50%); 
+            width: min(75vw, 75vh, 340px); /* Адаптивный размер квадрата */
+            aspect-ratio: 1 / 1;           /* Делаем квадрат */
+            border: 3px solid #00ff88; border-radius: 8px; 
+            box-shadow: 0 0 0 9999px rgba(0,0,0,0.5); 
+            pointer-events: none; z-index: 5; 
+        }
         
-        #overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 75%; max-width: 340px; aspect-ratio: 2/1; border: 3px solid #00ff88; border-radius: 8px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.4); pointer-events: none; }
         #torch-btn { position: absolute; top: 16px; right: 16px; width: 56px; height: 56px; border-radius: 50%; background: rgba(0,0,0,0.6); color: #fff; border: 2px solid rgba(255,255,255,0.3); font-size: 24px; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 10; }
         #torch-btn.active { background: #ffcc00; color: #000; }
         #status { position: absolute; top: 16px; left: 16px; background: rgba(0,0,0,0.7); padding: 8px 16px; border-radius: 20px; font-size: 14px; z-index: 10; max-width: 60%; }
-        #list { background: #222; max-height: 35vh; overflow-y: auto; border-top: 1px solid #333; }
+        
+        #list { background: #222; max-height: 35vh; overflow-y: auto; border-top: 1px solid #333; z-index: 10; }
         #list:empty { display: none; }
         .item { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #333; font-size: 15px; cursor: pointer; gap: 8px; }
         .item:active { background: #333; }
@@ -27,11 +37,13 @@
         .item .code { color: #00ff88; font-family: monospace; font-size: 12px; opacity: 0.7; }
         .item .qty { font-weight: bold; color: #ffcc00; background: #333; padding: 4px 10px; border-radius: 4px; flex-shrink: 0; }
         .item .del { background: #ff4444; color: #fff; border: none; width: 28px; height: 28px; border-radius: 50%; font-size: 16px; cursor: pointer; line-height: 1; flex-shrink: 0; }
-        #actions { display: flex; gap: 8px; padding: 12px; background: #222; border-top: 1px solid #333; }
+        
+        #actions { display: flex; gap: 8px; padding: 12px; background: #222; border-top: 1px solid #333; z-index: 10; }
         #actions button { flex: 1; padding: 14px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; background: #3a7bd5; color: #fff; }
         #actions button:disabled { opacity: 0.4; cursor: not-allowed; }
         #actions button.primary { background: #00aa55; }
         #actions button.warn { background: #ff8800; }
+        
         #error { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(200,0,0,0.95); padding: 20px; border-radius: 12px; text-align: center; max-width: 80%; z-index: 20; }
     </style>
 </head>
@@ -50,9 +62,7 @@
     </div>
 
 <script>
-    // ============================================================
-    // Твоя ссылка из Google Sheets
-    // ============================================================
+    // Ссылка на каталог (твоя Google Таблица)
     const CATALOG_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQPB1XAYLQrEnvmwCKjLvOXOZKEqXMDrD3JAvsFiyvG2mnA_k9YSJXxaiVOikuwxE7PG7ACXcnfWYLy/pub?gid=1294329108&single=true&output=csv";
 
     const tg = window.Telegram.WebApp;
@@ -68,6 +78,7 @@
     let videoTrack = null;
     let scanning = true;
 
+    // Аудио
     let audioCtx = null;
     function initAudio() {
         try {
@@ -88,6 +99,7 @@
     function vibrate() { try { navigator.vibrate && navigator.vibrate(80); } catch(e) {} }
 
     const video = document.getElementById('video');
+    const overlay = document.getElementById('overlay');
     const list = document.getElementById('list');
     const status = document.getElementById('status');
     const torchBtn = document.getElementById('torch-btn');
@@ -97,6 +109,7 @@
 
     function showError(text) { errorBox.textContent = text; errorBox.style.display = 'block'; }
 
+    // Загрузка каталога
     async function loadCatalog() {
         if (!CATALOG_CSV_URL || CATALOG_CSV_URL.includes("ВСТАВЬ_СЮДА")) return false;
         try {
@@ -147,6 +160,7 @@
         return rows;
     }
 
+    // Валидация EAN
     function isValidEAN13(code) {
         if (!/^\d{13}$/.test(code)) return false;
         let sum = 0;
@@ -166,6 +180,44 @@
         return false;
     }
 
+    // Проверка на попадание в квадратную рамку
+    function isInsideOverlay(barcodeBox) {
+        if (!barcodeBox) return true; 
+        
+        const videoRect = video.getBoundingClientRect();
+        const overlayRect = overlay.getBoundingClientRect();
+
+        const videoAspect = video.videoWidth / video.videoHeight;
+        const rectAspect = videoRect.width / videoRect.height;
+
+        let renderedWidth, renderedHeight, offsetX, offsetY;
+
+        if (videoAspect > rectAspect) {
+            renderedHeight = videoRect.height;
+            renderedWidth = renderedHeight * videoAspect;
+            offsetX = (videoRect.width - renderedWidth) / 2;
+            offsetY = 0;
+        } else {
+            renderedWidth = videoRect.width;
+            renderedHeight = renderedWidth / videoAspect;
+            offsetX = 0;
+            offsetY = (videoRect.height - renderedHeight) / 2;
+        }
+
+        const scaleX = renderedWidth / video.videoWidth;
+        const scaleY = renderedHeight / video.videoHeight;
+
+        const bcCenterX = videoRect.left + offsetX + (barcodeBox.x + barcodeBox.width / 2) * scaleX;
+        const bcCenterY = videoRect.top + offsetY + (barcodeBox.y + barcodeBox.height / 2) * scaleY;
+
+        return (
+            bcCenterX >= overlayRect.left &&
+            bcCenterX <= overlayRect.right &&
+            bcCenterY >= overlayRect.top &&
+            bcCenterY <= overlayRect.bottom
+        );
+    }
+
     async function processCodes(detectedCodes) {
         const now = Date.now();
         let changed = false;
@@ -174,6 +226,9 @@
             if (!code) continue;
             if (c.format && c.format !== 'ean_13' && c.format !== 'ean_8' && c.format !== 'code_128' && c.format !== 'code_39') continue;
             if (!isValidBarcode(code)) { status.textContent = `⚠️ ${code}`; continue; }
+
+            // Отсекаем те, что вне квадрата
+            if (!isInsideOverlay(c.boundingBox)) continue;
             
             const lastSeen = currentlyVisible.get(code);
             if (lastSeen !== undefined && now - lastSeen < 1500) { currentlyVisible.set(code, now); continue; }
@@ -237,13 +292,8 @@
 
     async function initCamera() {
         try {
-            // 1. Просим FullHD разрешение
             videoStream = await navigator.mediaDevices.getUserMedia({
-                video: { 
-                    facingMode: 'environment', 
-                    width: { ideal: 1920 }, 
-                    height: { ideal: 1080 } 
-                }
+                video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }
             });
             video.srcObject = videoStream;
             videoTrack = videoStream.getVideoTracks()[0];
@@ -253,18 +303,12 @@
             if (torchSupported) torchBtn.style.display = 'flex';
             
             const constraints = { advanced: [] };
-            
-            // 2. Включаем непрерывный автофокус (чтобы не мылилось)
             if (caps.focusMode && caps.focusMode.includes('continuous')) {
                 constraints.advanced.push({ focusMode: 'continuous' });
             }
-            
-            // 3. Включаем аппаратный зум (2х)
             if (caps.zoom && caps.zoom.max > 1) {
-                const targetZoom = Math.min(2.0, caps.zoom.max);
-                constraints.advanced.push({ zoom: targetZoom });
+                constraints.advanced.push({ zoom: Math.min(2.0, caps.zoom.max) });
             }
-            
             if (constraints.advanced.length > 0) {
                 await videoTrack.applyConstraints(constraints);
             }
@@ -291,9 +335,8 @@
                 try {
                     const codes = await detector.detect(video);
                     if (codes.length > 0) await processCodes(codes);
-                } catch(e) { /* ignore */ }
+                } catch(e) {}
             }
-            // Ускорено до 30мс (~33 кадра в секунду)
             await new Promise(r => setTimeout(r, 30));
         }
     }
@@ -304,12 +347,12 @@
         fb.style.cssText = 'position:absolute;inset:0;z-index:5;';
         document.getElementById('video-wrap').appendChild(fb);
         video.style.display = 'none';
-        document.getElementById('overlay').style.display = 'none';
+        overlay.style.display = 'none';
         status.textContent = 'iOS режим';
         const html5 = new Html5Qrcode('fallback-reader');
         html5.start(
             { facingMode: 'environment' },
-            { fps: 10, qrbox: { width: 260, height: 160 } },
+            { fps: 10, qrbox: { width: 260, height: 260 } }, // Квадратная зона для iOS
             (text) => {
                 const code = String(text).trim();
                 if (isValidBarcode(code)) processCodes([{ rawValue: code }]);
