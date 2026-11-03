@@ -10,7 +10,10 @@
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #1a1a1a; color: #fff; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
         #video-wrap { position: relative; flex: 1; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-        video { width: 100%; height: 100%; object-fit: cover; }
+        
+        /* Легкое визуальное приближение. Если штрихкод мелкий — поднеси телефон ближе */
+        video { width: 100%; height: 100%; object-fit: cover; transform: scale(1.3); }
+        
         #overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 75%; max-width: 340px; aspect-ratio: 2/1; border: 3px solid #00ff88; border-radius: 8px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.4); pointer-events: none; }
         #torch-btn { position: absolute; top: 16px; right: 16px; width: 56px; height: 56px; border-radius: 50%; background: rgba(0,0,0,0.6); color: #fff; border: 2px solid rgba(255,255,255,0.3); font-size: 24px; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 10; }
         #torch-btn.active { background: #ffcc00; color: #000; }
@@ -48,7 +51,7 @@
 
 <script>
     // ============================================================
-    // ССЫЛКА ИЗ GOOGLE SHEETS (опубликована в интернете как CSV)
+    // Твоя ссылка из Google Sheets
     // ============================================================
     const CATALOG_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQPB1XAYLQrEnvmwCKjLvOXOZKEqXMDrD3JAvsFiyvG2mnA_k9YSJXxaiVOikuwxE7PG7ACXcnfWYLy/pub?gid=1294329108&single=true&output=csv";
 
@@ -65,29 +68,21 @@
     let videoTrack = null;
     let scanning = true;
 
-    // === ЕДИНЫЙ AudioContext (создаётся один раз) ===
     let audioCtx = null;
     function initAudio() {
         try {
-            if (!audioCtx) {
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            }
-            if (audioCtx.state === 'suspended') {
-                audioCtx.resume();
-            }
-        } catch(e) { console.error("audio init:", e); }
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+        } catch(e) {}
     }
     function beep() {
         if (!audioCtx) return;
         try {
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
-            osc.frequency.value = 1100;
-            gain.gain.value = 0.15;
-            osc.start();
-            osc.stop(audioCtx.currentTime + 0.08);
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.frequency.value = 1100; gain.gain.value = 0.15;
+            osc.start(); osc.stop(audioCtx.currentTime + 0.08);
         } catch(e) {}
     }
     function vibrate() { try { navigator.vibrate && navigator.vibrate(80); } catch(e) {} }
@@ -103,9 +98,7 @@
     function showError(text) { errorBox.textContent = text; errorBox.style.display = 'block'; }
 
     async function loadCatalog() {
-        if (!CATALOG_CSV_URL || CATALOG_CSV_URL.includes("ВСТАВЬ_СЮДА")) {
-            return false;
-        }
+        if (!CATALOG_CSV_URL || CATALOG_CSV_URL.includes("ВСТАВЬ_СЮДА")) return false;
         try {
             const resp = await fetch(CATALOG_CSV_URL, { cache: "no-store" });
             if (!resp.ok) throw new Error("HTTP " + resp.status);
@@ -131,22 +124,16 @@
                 });
             }
             return true;
-        } catch (e) {
-            console.error("catalog load:", e);
-            return false;
-        }
+        } catch (e) { return false; }
     }
 
     function parseCSV(text) {
-        const rows = [];
-        let row = [], cur = "", inQuotes = false;
+        const rows = []; let row = [], cur = "", inQuotes = false;
         for (let i = 0; i < text.length; i++) {
             const c = text[i];
             if (inQuotes) {
-                if (c === '"') {
-                    if (text[i+1] === '"') { cur += '"'; i++; }
-                    else inQuotes = false;
-                } else cur += c;
+                if (c === '"') { if (text[i+1] === '"') { cur += '"'; i++; } else inQuotes = false; } 
+                else cur += c;
             } else {
                 if (c === '"') inQuotes = true;
                 else if (c === ',') { row.push(cur); cur = ""; }
@@ -191,16 +178,14 @@
             const lastSeen = currentlyVisible.get(code);
             if (lastSeen !== undefined && now - lastSeen < 1500) { currentlyVisible.set(code, now); continue; }
 
-            // === НОВОЕ: если каталог загружен, проверяем наличие товара ===
             if (catalogMap.size > 0) {
                 const prod = catalogMap.get(code);
                 if (!prod) {
                     status.textContent = `⚠️ Нет в каталоге: ${code}`;
                     currentlyVisible.set(code, now);
-                    continue; // не добавляем в scannedMap
+                    continue;
                 }
             }
-            // ================================================================
             
             if (scannedMap[code]) scannedMap[code] += 1;
             else scannedMap[code] = 1;
@@ -223,9 +208,7 @@
         if (input === null) return;
         const val = parseFloat(input.replace(",", "."));
         if (isNaN(val) || val <= 0) { alert("Введите число больше нуля"); return; }
-        scannedMap[code] = val;
-        renderList();
-        updateSendBtn();
+        scannedMap[code] = val; renderList(); updateSendBtn();
     }
 
     function renderList() {
@@ -242,8 +225,7 @@
             const del = document.createElement('button');
             del.className = 'del'; del.textContent = '×';
             del.onclick = (e) => { e.stopPropagation(); delete scannedMap[code]; renderList(); updateSendBtn(); };
-            div.appendChild(del);
-            list.appendChild(div);
+            div.appendChild(del); list.appendChild(div);
         });
     }
 
@@ -255,19 +237,36 @@
 
     async function initCamera() {
         try {
+            // 1. Просим FullHD разрешение
             videoStream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+                video: { 
+                    facingMode: 'environment', 
+                    width: { ideal: 1920 }, 
+                    height: { ideal: 1080 } 
+                }
             });
             video.srcObject = videoStream;
             videoTrack = videoStream.getVideoTracks()[0];
             const caps = videoTrack.getCapabilities ? videoTrack.getCapabilities() : {};
+            
             torchSupported = !!caps.torch;
             if (torchSupported) torchBtn.style.display = 'flex';
+            
+            const constraints = { advanced: [] };
+            
+            // 2. Включаем непрерывный автофокус (чтобы не мылилось)
+            if (caps.focusMode && caps.focusMode.includes('continuous')) {
+                constraints.advanced.push({ focusMode: 'continuous' });
+            }
+            
+            // 3. Включаем аппаратный зум (2х)
             if (caps.zoom && caps.zoom.max > 1) {
-                try {
-                    const targetZoom = Math.min(1.5, caps.zoom.max);
-                    await videoTrack.applyConstraints({ advanced: [{ zoom: targetZoom }] });
-                } catch(e) {}
+                const targetZoom = Math.min(2.0, caps.zoom.max);
+                constraints.advanced.push({ zoom: targetZoom });
+            }
+            
+            if (constraints.advanced.length > 0) {
+                await videoTrack.applyConstraints(constraints);
             }
         } catch (e) { showError('Нет доступа к камере: ' + e.message); return false; }
         return true;
@@ -294,7 +293,8 @@
                     if (codes.length > 0) await processCodes(codes);
                 } catch(e) { /* ignore */ }
             }
-            await new Promise(r => setTimeout(r, 50));
+            // Ускорено до 30мс (~33 кадра в секунду)
+            await new Promise(r => setTimeout(r, 30));
         }
     }
 
