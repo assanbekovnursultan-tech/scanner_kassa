@@ -203,7 +203,7 @@
             try {
                 const formats = await BarcodeDetector.getSupportedFormats();
                 const need = ['ean_13', 'ean_8', 'code_128', 'code_39',
-                              'upc_a', 'upc_e', 'qr_code', 'itf'];
+                              'upc_a', 'upc_e', 'itf'];
                 const supported = need.filter(f => formats.includes(f));
                 detector = new BarcodeDetector({ formats: supported });
                 return true;
