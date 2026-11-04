@@ -230,10 +230,6 @@
             if (!isValidBarcode(code)) continue;
             if (!isInsideOverlay(c.boundingBox)) continue;
 
-            // 1. ПРОВЕРКА КАТАЛОГА
-            if (catalogMap.size > 0 && !catalogMap.has(code)) {
-                continue; // Нет в каталоге, даже не мигаем
-            }
 
             // 2. ЕСЛИ ТОВАРА ЕЩЕ НЕТ В СПИСКЕ (или он другой)
             if (!scannedMap[code]) {
