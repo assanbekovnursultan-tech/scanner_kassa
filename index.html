@@ -259,7 +259,7 @@
         // Обновляем интерфейс только если реально что-то добавилось
         if (changed && lastAddedCode) {
             const prod = catalogMap.get(lastAddedCode);
-            status.textContent = prod ? `✅ ${prod.name}` : `✅ ${lastAddedCode}`;
+            status.textContent = prod ? `✅ ${prod.name}` : `⚠️ ${lastAddedCode} (нет в каталоге)`;
             renderList();
             updateSendBtn();
         }
@@ -290,7 +290,7 @@
             div.onclick = (e) => { if (e.target.tagName !== 'BUTTON') editQty(code); };
             const nameHtml = prod
                 ? `<div class="name">${prod.name}</div><div class="code">${code} · ${prod.price}₸ · ост: ${prod.stock}</div>`
-                : `<div class="code">${code}</div>`;
+                : `<div class="name" style="color:#ffaa00">⚠️ Нет в каталоге</div><div class="code">${code}</div>`;
             div.innerHTML = `<div class="info">${nameHtml}</div><span class="qty">${scannedMap[code]} шт.</span>`;
             const del = document.createElement('button');
             del.className = 'del'; del.textContent = '×';
@@ -411,6 +411,8 @@
         const ok = await initDetector();
         if (ok) scanLoop();
         else startFallback();
+
+        setInterval(async () => { if (await loadCatalog()) renderList(); }, 60000);
     })();
 </script>
 </body>
