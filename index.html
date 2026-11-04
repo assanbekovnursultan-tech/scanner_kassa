@@ -221,38 +221,57 @@
     async function processCodes(detectedCodes) {
         const now = Date.now();
         let changed = false;
+        let lastAddedCode = null;
+
         for (const c of detectedCodes) {
             const code = String(c.rawValue).trim();
             if (!code) continue;
             if (c.format && c.format !== 'ean_13' && c.format !== 'ean_8' && c.format !== 'code_128' && c.format !== 'code_39') continue;
-            if (!isValidBarcode(code)) { status.textContent = `⚠️ ${code}`; continue; }
-
-            // Отсекаем те, что вне квадрата
+            if (!isValidBarcode(code)) continue;
             if (!isInsideOverlay(c.boundingBox)) continue;
-            
-            const lastSeen = currentlyVisible.get(code);
-            if (lastSeen !== undefined && now - lastSeen < 1500) { currentlyVisible.set(code, now); continue; }
 
-            if (catalogMap.size > 0) {
-                const prod = catalogMap.get(code);
-                if (!prod) {
-                    status.textContent = `⚠️ Нет в каталоге: ${code}`;
-                    currentlyVisible.set(code, now);
-                    continue;
-                }
+            // 1. ПРОВЕРКА КАТАЛОГА
+            if (catalogMap.size > 0 && !catalogMap.has(code)) {
+                continue; // Нет в каталоге, даже не мигаем
             }
-            
-            if (scannedMap[code]) scannedMap[code] += 1;
-            else scannedMap[code] = 1;
+
+            // 2. ЕСЛИ ТОВАРА ЕЩЕ НЕТ В СПИСКЕ (или он другой)
+            if (!scannedMap[code]) {
+                scannedMap[code] = 1;
+                currentlyVisible.set(code, now);
+                changed = true;
+                lastAddedCode = code;
+                beep(); vibrate();
+                continue; // Мгновенно добавляем и идем к следующему
+            }
+
+            // 3. ЕСЛИ ЭТОТ ТОВАР УЖЕ ЕСТЬ (защита от дублей)
+            const lastSeen = currentlyVisible.get(code);
+            if (lastSeen !== undefined && now - lastSeen < 1000) {
+                currentlyVisible.set(code, now);
+                continue; // Ждем 1 секунду, если навели на тот же товар
+            }
+
+            // Прошла 1 секунда, добавляем еще одну штуку этого же товара
+            scannedMap[code] += 1;
             currentlyVisible.set(code, now);
             changed = true;
+            lastAddedCode = code;
             beep(); vibrate();
-            
-            const prod = catalogMap.get(code);
-            status.textContent = prod ? `✅ ${prod.name}` : `✅ ${code}`;
         }
-        for (const [code, t] of currentlyVisible) { if (now - t > 10000) currentlyVisible.delete(code); }
-        if (changed) { renderList(); updateSendBtn(); }
+
+        // Обновляем интерфейс только если реально что-то добавилось
+        if (changed && lastAddedCode) {
+            const prod = catalogMap.get(lastAddedCode);
+            status.textContent = prod ? `✅ ${prod.name}` : `✅ ${lastAddedCode}`;
+            renderList();
+            updateSendBtn();
+        }
+
+        // Чистим старые коды
+        for (const [code, t] of currentlyVisible) { 
+            if (now - t > 10000) currentlyVisible.delete(code); 
+        }
     }
 
     function editQty(code) {
